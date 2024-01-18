@@ -101,26 +101,26 @@ def generateDiploma(new_image, name, surname):
     today = date.today()
 
     img = Image.open("diplome-BG.png")           # ouverture de l'image
-    fontSize = 32
-    def add_text(text, x, y, font_size=fontSize):
+    fontSize = 4
+    def add_text(text, x, y, font_size=fontSize, font_style="font.ttf"):
         draw = ImageDraw.Draw(img)                  # objet "dessin" dans l'image
-        font = ImageFont.truetype("sans.ttf", fontSize)   # police à utiliser
+        font = ImageFont.truetype(font_style, font_size)
         draw.text((x, y), text, "black", font)       # ajout du texte
 
     # add text at the middle of the image
     width, height = img.size
 
-    Diplome = "Master 2 Informatique"
-    add_text(Diplome, (width/2) - len(Diplome)*(fontSize//4), height/5, fontSize*8)
+    Diplome = "Master Informatique"
+    add_text(Diplome, (width//2) - len(Diplome)*fontSize, height/5, fontSize*8)
 
     text = "Délivré à"
-    add_text(text, (width/2) - len(text) * fontSize, height/3, fontSize*8)
+    add_text(text, (width//3) - len(text) * fontSize, height/3, fontSize*8)
 
     name = name + " " + surname
-    add_text(name, (width/2) - (len(name) * fontSize ) + len(text * (fontSize)), height/3, fontSize*8)
+    add_text(name, (width//2)  - (len(name) * fontSize ), height / 3, fontSize * 8)
 
     date = "Le " + today.strftime("%d/%m/%Y")
-    add_text(date, (width/2) - len(date)//2 * fontSize, height/1.5, fontSize*8)
+    add_text(date, (width//2) - len(date)//2 * fontSize+4, height/1.5, fontSize*8, "sans.ttf")
 
 
     img.save(new_image + '.png')            # sauvegarde de l'image obtenue dans un autre fichier
