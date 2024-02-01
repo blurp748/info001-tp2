@@ -3,6 +3,9 @@ from PIL import ImageFont
 from PIL import ImageDraw
 import sys
 import subprocess
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import AES, PKCS1_OAEP
+from bitstring import BitArray
 
 def help():
     print("""Commands
@@ -16,8 +19,10 @@ def help():
                 Sign file with private key.
         - verif_sign <FILE>
                 Verify signature from file with public key.
-        - generate_diplome <NEW_FILE> <PRENOM> <NOM>
+        - generate_diplome <NEW_FILE> <PRENOM> <NOM> <MOYENNE>
                 Generate a new diplome.
+        - generate_diplome_crypted <NEW_FILE> <PRENOM> <NOM> <MOYENNE> <PASSWORD>
+                Generate a new crypted diplome (with date).
         """)
 
 def checkArgs(number, command):
@@ -28,19 +33,19 @@ def checkArgs(number, command):
 def cache_texte(image, new_image, texte):
     img = Image.open(image + '.png')
 
-    texte = texte
     pixels = img.load()
     largeur, hauteur = img.size
     nb_pixel = largeur * hauteur
 
     if len(texte) > 0:
-        spaces = 1000 - len(texte)
+        spaces = 10000 - len(texte)
         texte = texte + (" " * spaces)
 
     # Convertir le texte en binaire
     binaire = ''.join(format(ord(char), '08b') for char in texte)
-    taille_binaire = len(binaire)
 
+
+    taille_binaire = len(binaire)
     if taille_binaire > nb_pixel:
         raise ValueError("Text is too long")
 
@@ -68,7 +73,7 @@ def recupere_texte(image):
     cpt = 0
     for i in range(largeur):
         for j in range(hauteur):
-            if(cpt < 8000):
+            if(cpt < 80000):
                 r, g, b, z = pixels[i, j]
                 binary_red = '{0:08b}'.format(r)
                 binary_texte += str(binary_red[len(binary_red) - 1])
@@ -79,7 +84,7 @@ def recupere_texte(image):
     text = "".join([chr(int(binary_texte[i:i+8], 2)) for i in range(0, len(binary_texte), 8)])
     text = text.rstrip()
 
-    print(text)
+    return text
 
 def generate_private_key(keypass):
     print("Generating private key...")
@@ -89,20 +94,82 @@ def generate_public_key(keypass):
     print("Generating public key...")
     subprocess.run(["openssl", "rsa", "-in", ".cle_privee.pem", "-passin", f"pass:{keypass}", "-pubout", "-out", "cle_publique.pem"])
 
+def RSA_keys(name, surname, keypass):
+
+    key = RSA.generate(2048)
+    name = name + "_" + surname + "_"
+    private_key = key.export_key(passphrase=keypass, pkcs=8,
+                              protection="scryptAndAES128-CBC",
+                              prot_params={'iteration_count':131072})
+    with open(name + "private.pem", "wb") as f:
+        f.write(private_key)
+
+    public_key = key.publickey().export_key()
+    with open(name + "receiver.pem", "wb") as f:
+        f.write(public_key)
+
+def encrypt_RSA(text, name, surname):
+    from Crypto.Random import get_random_bytes
+    import binascii
+
+    data = text.encode("utf-8")
+
+    recipient_key = RSA.import_key(open(name + "_" + surname + "_receiver.pem").read())
+    session_key = get_random_bytes(16)
+
+    cipher_rsa = PKCS1_OAEP.new(recipient_key)
+    enc_session_key = cipher_rsa.encrypt(session_key)
+
+    cipher_aes = AES.new(session_key, AES.MODE_EAX)
+    ciphertext, tag = cipher_aes.encrypt_and_digest(data)
+    
+    separator = "|||"
+    hexadecimal_representation = binascii.hexlify(separator.encode())
+    binary_separator = "11111000111110001111100"
+
+    binary_enc_session_key = BitArray(bytes=enc_session_key).bin
+    enc_session_key_binary = BitArray(bin=binary_enc_session_key).tobytes()
+    
+    binary_cipher_aes = BitArray(bytes=cipher_aes.nonce).bin
+    binary_tag = BitArray(bytes=tag).bin
+    binary_ciphertext = BitArray(bytes=ciphertext).bin
+
+    return binary_enc_session_key + binary_separator + binary_cipher_aes + binary_separator + binary_tag + binary_separator + binary_ciphertext
+
+def decrypt_RSA(text, name, surname, password):
+
+    private_key = RSA.import_key(open(name + "_" + surname + "_private.pem").read(), password)
+
+    text = text.split("11111000111110001111100")
+
+    enc_session_key = BitArray(bin=text[0]).tobytes()
+    nonce = BitArray(bin=text[1]).tobytes()
+    tag = BitArray(bin=text[2]).tobytes()
+    ciphertext = BitArray(bin=text[3]).tobytes()
+
+    # Decrypt the session key with the private RSA key
+    cipher_rsa = PKCS1_OAEP.new(private_key)
+    session_key = cipher_rsa.decrypt(enc_session_key)
+
+    # Decrypt the data with the AES session key
+    cipher_aes = AES.new(session_key, AES.MODE_EAX, nonce)
+    data = cipher_aes.decrypt_and_verify(ciphertext, tag)
+    print(data.decode("utf-8"))
+
 def sign_file(file_path):
     subprocess.run(["openssl", "dgst", "-sha256", "-sign", ".cle_privee.pem", "-out", f"{file_path}.sig", file_path])
 
 def verify_signature(file_path):
     subprocess.run(["openssl", "dgst", "-sha256", "-verify", "cle_publique.pem", "-signature", f"{file_path}.sig", file_path])
 
-def generateDiploma(new_image, name, surname):
+def generateDiploma(new_image, name, surname, moyenne):
     from datetime import date
     import qrcode
     today = date.today()
 
     img = Image.open("diplome-BG.png")           # ouverture de l'image
     fontSize = 4
-    def add_text(text, x, y, font_size=fontSize, font_style="font.ttf"):
+    def add_text(text, x, y, font_size=fontSize, font_style="sans.ttf"):
         draw = ImageDraw.Draw(img)                  # objet "dessin" dans l'image
         font = ImageFont.truetype(font_style, font_size)
         draw.text((x, y), text, "black", font)       # ajout du texte
@@ -111,27 +178,39 @@ def generateDiploma(new_image, name, surname):
     width, height = img.size
 
     Diplome = "Master Informatique"
-    add_text(Diplome, (width//2) - len(Diplome)*fontSize, height/5, fontSize*8)
+    add_text(Diplome, (width/2) - 210, height/5, fontSize*12)
 
-    text = "Délivré à"
-    add_text(text, (width//3) - len(text) * fontSize, height/3, fontSize*8)
+    text = "Délivré à " + name + " " + surname
+    add_text(text, (width//4), height/2.5, fontSize*8)
 
-    name = name + " " + surname
-    add_text(name, (width//2)  - (len(name) * fontSize ), height / 3, fontSize * 8)
-
-    date = "Le " + today.strftime("%d/%m/%Y")
-    add_text(date, (width//2) - len(date)//2 * fontSize+4, height/1.5, fontSize*8, "sans.ttf")
-
+    moyenne = "Avec une moyenne de " + moyenne
+    add_text(moyenne, (width//4), height/2, fontSize*8)
 
     img.save(new_image + '.png')            # sauvegarde de l'image obtenue dans un autre fichier
 
+def generateDiplomaCrypted(new_image, name, surname, moyenne, password):
+    from datetime import date
+
+    RSA_keys(name, surname, password)
+
+    generateDiploma(new_image, name, surname, moyenne)
+
+    today = date.today().strftime("%d/%m/%Y")
+    today = encrypt_RSA(today, name, surname)
+
+    cache_texte(new_image, new_image, today)
+
+    sign_file(new_image + '.png')
+    
+
+def addQrCode(image, url):
     # QR code
     img = qrcode.make("https://www.youtube.com/shorts/leoN6ub1rKA")
-    img.save(new_image + '_qr.png')
+    img.save(image + '_qr.png')
 
     # Paste QR code
-    img = Image.open(new_image + '.png')
-    qr = Image.open(new_image + '_qr.png')
+    img = Image.open(image + '.png')
+    qr = Image.open(image + '_qr.png')
     qrWidth, qrHeight = qr.size
 
     ## reduce QR code size
@@ -139,7 +218,7 @@ def generateDiploma(new_image, name, surname):
     qrHeight = int((qrHeight // 2.5) + 6)
     qr = qr.resize((qrWidth, qrHeight))
     img.paste(qr, (width - qrWidth, 0))
-    img.save(new_image + '.png')
+    img.save(image + '.png')
 
 # ====================================================================
 # ============================== MAIN ================================
@@ -160,7 +239,8 @@ else:
 
         checkArgs(3, "recupere_texte <FILE>")
 
-        recupere_texte(sys.argv[2])
+        text = recupere_texte(sys.argv[2])
+        print(text)
 
     elif(commande == "create_keys"):
         
@@ -184,9 +264,22 @@ else:
 
     elif(commande == "generate_diplome"):
         
-        checkArgs(5, "generate_diplome <NEW_FILE> <PRENOM> <NOM>")
+        checkArgs(6, "generate_diplome <NEW_FILE> <PRENOM> <NOM> <MOYENNE>")
 
-        generateDiploma(sys.argv[2], sys.argv[3], sys.argv[4])
+        generateDiploma(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+
+    elif(commande == "generate_diplome_crypted"):
+        
+        checkArgs(7, "generate_diplome_crypted <NEW_FILE> <PRENOM> <NOM> <MOYENNE> <PASSWORD>")
+
+        generateDiplomaCrypted(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
+
+    elif(commande == "get_data_diplome"):
+        
+        checkArgs(6, "get_data_diplome <FILE> <PRENOM> <NOM> <PASSWORD>")
+
+        res = recupere_texte(sys.argv[2])
+        decrypt_RSA(res, sys.argv[3], sys.argv[4], sys.argv[5])
         
     else:
         print("Command not found.")
