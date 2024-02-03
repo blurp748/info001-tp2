@@ -23,6 +23,8 @@ def help():
                 Generate a new diplome.
         - generate_diplome_crypted <NEW_FILE> <PRENOM> <NOM> <MOYENNE> <PASSWORD>
                 Generate a new crypted diplome (with date).
+                
+        - generate_qr_code <FILE> <URL>
         """)
 
 def checkArgs(number, command):
@@ -93,6 +95,8 @@ def generate_private_key(keypass):
 def generate_public_key(keypass):
     print("Generating public key...")
     subprocess.run(["openssl", "rsa", "-in", ".cle_privee.pem", "-passin", f"pass:{keypass}", "-pubout", "-out", "cle_publique.pem"])
+    subprocess.run(["cp", "cle_publique.pem", "./node"])
+
 
 def RSA_keys(name, surname, keypass):
 
@@ -122,14 +126,14 @@ def encrypt_RSA(text, name, surname):
 
     cipher_aes = AES.new(session_key, AES.MODE_EAX)
     ciphertext, tag = cipher_aes.encrypt_and_digest(data)
-    
+
     separator = "|||"
     hexadecimal_representation = binascii.hexlify(separator.encode())
     binary_separator = "11111000111110001111100"
 
     binary_enc_session_key = BitArray(bytes=enc_session_key).bin
     enc_session_key_binary = BitArray(bin=binary_enc_session_key).tobytes()
-    
+
     binary_cipher_aes = BitArray(bytes=cipher_aes.nonce).bin
     binary_tag = BitArray(bytes=tag).bin
     binary_ciphertext = BitArray(bytes=ciphertext).bin
@@ -158,12 +162,15 @@ def decrypt_RSA(text, name, surname, password):
 
 def sign_file(file_path):
     subprocess.run(["openssl", "dgst", "-sha256", "-sign", ".cle_privee.pem", "-out", f"{file_path}.sig", file_path])
+    subprocess.run(["cp", f"{file_path}.sig", "./node"])
+
 
 def verify_signature(file_path):
     subprocess.run(["openssl", "dgst", "-sha256", "-verify", "cle_publique.pem", "-signature", f"{file_path}.sig", file_path])
 
 def generateDiploma(new_image, name, surname, moyenne):
     from datetime import date
+    import random
     import qrcode
     today = date.today()
 
@@ -201,24 +208,26 @@ def generateDiplomaCrypted(new_image, name, surname, moyenne, password):
     cache_texte(new_image, new_image, today)
 
     sign_file(new_image + '.png')
-    
+
 
 def addQrCode(image, url):
-    # QR code
-    img = qrcode.make("https://www.youtube.com/shorts/leoN6ub1rKA")
-    img.save(image + '_qr.png')
-
-    # Paste QR code
+    import qrcode
     img = Image.open(image + '.png')
-    qr = Image.open(image + '_qr.png')
-    qrWidth, qrHeight = qr.size
+    # put the qr code in the top right corner it should be 1/4 of the image
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=3,
+        border=4,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
 
-    ## reduce QR code size
-    qrWidth = int((qrWidth // 2.5) + 6)
-    qrHeight = int((qrHeight // 2.5) + 6)
-    qr = qr.resize((qrWidth, qrHeight))
-    img.paste(qr, (width - qrWidth, 0))
+    img_qr = qr.make_image(fill_color="black", back_color="white")
+    img.paste(img_qr, (img.size[0] - img_qr.size[0], 0))
     img.save(image + '.png')
+
+
 
 # ====================================================================
 # ============================== MAIN ================================
@@ -269,17 +278,23 @@ else:
         generateDiploma(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
 
     elif(commande == "generate_diplome_crypted"):
-        
+
         checkArgs(7, "generate_diplome_crypted <NEW_FILE> <PRENOM> <NOM> <MOYENNE> <PASSWORD>")
 
         generateDiplomaCrypted(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
 
     elif(commande == "get_data_diplome"):
-        
+
         checkArgs(6, "get_data_diplome <FILE> <PRENOM> <NOM> <PASSWORD>")
 
         res = recupere_texte(sys.argv[2])
         decrypt_RSA(res, sys.argv[3], sys.argv[4], sys.argv[5])
-        
+
+    elif(commande == "generate_qr_code"):
+
+        checkArgs(4, "generate_qr_code <FILE> <URL>")
+
+        addQrCode(sys.argv[2], sys.argv[3])
+
     else:
         print("Command not found.")
