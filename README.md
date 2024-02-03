@@ -59,3 +59,21 @@ Pour récupèrer la donnée cachée : (qui est la date de création du diplome)
 
     python3 diplome.py get_data_diplome crypted-diplome Pierre Hyvernat hyvernat
 
+
+
+
+### Mini projet
+
+
+Nous avons crée une petite application web pour vérifier la validité des diplomes.
+Le QR code du diplome est scanné et une redirection sur une appli web minimale sera effectué.
+Il faut ensuite upload l'image via le formulaire et le site va alors vérifier la signature du diplome via le script python grace a la clé privée générée via le script python.
+
+Il faut réaliser les étapes des questions précédentes au préalable.
+
+Pistes d'améliorations :
+- Utiliser une base de données pour stocker les clés publiques.
+
+Limites :
+- La vérification de la signature est faite en local, il faudrait la faire sur le serveur pour plus de sécurité.
+- La vérification de la signature est faite en python, via le même script pour générer et vérifier la clé.
