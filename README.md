@@ -1,3 +1,15 @@
+Nous utilisons un environnement virtuel
+```
+virtualenv VirtualEnv -p /usr/bin/python3
+. ./VirtualEnv/bin/activate
+pip install Pillow
+pip install pycryptodome
+pip install qrcode
+pip install bottle
+pip install bitstring
+pip install qrcode
+ ```
+
 Pour voir les différentes commandes :
 
     python3 diplome.py
